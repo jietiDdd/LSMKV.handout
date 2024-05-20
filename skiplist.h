@@ -1,18 +1,11 @@
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <cstdlib>
-#include <list>
-#include <utility>
-#include <ctime>
-#include "information.h"
+#include "global.h"
+#include "vLog.h"
+#include "bloomfilter.h"
+#include "sstable.h"
 
-int MAX_LEVEL = 15;
-int MAX_KEY_NUMBER = 408;
-
-//跳表节点类
+// 跳表节点类
 struct Skiplist_Node{
     uint64_t key;
     std::string value;
@@ -41,7 +34,7 @@ private:
     Skiplist_Node * head;
     Skiplist_Node * tail;
     int level; // 整个跳表的当前级数
-    int keyNumber; // 跳表的键值对数目，便于检查Memtable是否大于16kB
+    int keyNum; // 跳表的键值对数目，用于判断是否要转换为sstable和vlog
 
     // 内置函数，用于抛硬币，因此概率为0.5
     int random()
@@ -70,5 +63,8 @@ public:
 
     bool del(uint64_t key);
 
-    std::list<std::pair<uint64_t,std::string>> scan(uint64_t k1,uint64_t k2);
+    void scan(uint64_t k1,uint64_t k2,
+        std::map<uint64_t, std::string> &map, std::map<uint64_t, uint64_t> &timeStamp);
+
+    void to_disk(const std::string &file_path, vLog &vlog);
 };

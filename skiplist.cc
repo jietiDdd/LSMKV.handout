@@ -122,9 +122,10 @@ bool Skiplist::del(uint64_t key)
 }
 
 // SCAN操作
-std::list<std::pair<uint64_t,std::string>> Skiplist::scan(uint64_t k1,uint64_t k2)
+// 要重构成std::map形式，并维护时间戳
+void Skiplist::scan(uint64_t k1,uint64_t k2,
+        std::map<uint64_t, std::string> &map, std::map<uint64_t, uint64_t> &timeStamp)
 {
-    std::list<std::pair<uint64_t,std::string>> scanList;
 
     // 查找不小于K1的最小键
     Skiplist_Node * p = head;
@@ -140,16 +141,95 @@ std::list<std::pair<uint64_t,std::string>> Skiplist::scan(uint64_t k1,uint64_t k
         p = p->forward[0];
         if(p->isData == false){
             //已经到达tail，返回空链表
-            return scanList;
+            return;
         }
     }while(p->key < k1);
 
     while(p->isData == true && p->key <= k2){
         if(p->value != "~DELETED"){
             // 未被标记为删除，放入list中
-            scanList.push_back(std::make_pair(p->key,p->value));
+            map.insert(std::make_pair(p->key,p->value));
+            timeStamp.insert(std::make_pair(p->key, currentTimeStamp)); // 使用当前的时间戳，保证跳表的才是最新纪录
         }
         p = p->forward[0];
     }
-    return scanList;
+}
+
+/*
+ * 当Memtable大小即将溢出时，将memtable写入硬盘
+ */
+void Skiplist::to_disk(const std::string &file_path, vLog &vlog)
+{
+    // 首先遍历memtable，将所有结果压入到一个entry数组中
+    std::vector<uint64_t> keyList;
+    std::vector<uint32_t> vlenList;
+    std::vector<Entry> entries;
+    uint64_t length = 0; // 计算新插入vLog的总长度
+
+    Skiplist_Node *p = head;
+    while(p->forward[0]->isData != false){
+        p = p->forward[0];
+        Entry entry;
+        keyList.push_back(p->key);
+        // 检查是否已被删除，如果是，需要设置vlen为0
+        if(p->value != "~DELETED"){
+            vlenList.push_back(p->value.length());
+
+            entry.key = p->key;
+            entry.vlen = p->value.length();
+            entry.value = p->value;
+            entry.magic = 0xff;
+            // 计算校验和
+            std::vector<unsigned char> data;
+            const unsigned char* keyBytes = reinterpret_cast<const unsigned char*>(&entry.key);
+            data.insert(data.end(), keyBytes, keyBytes + sizeof(entry.key));
+
+            const unsigned char* vlenBytes = reinterpret_cast<const unsigned char*>(&entry.vlen);
+            data.insert(data.end(), vlenBytes, vlenBytes + sizeof(entry.vlen));
+
+            const unsigned char* valueBytes = reinterpret_cast<const unsigned char*>(entry.value.data());
+            data.insert(data.end(), valueBytes, valueBytes + entry.value.size());
+            entry.checkNum = utils::crc16(data);
+
+            length += (VLOG_ENTRY_HEAD + entry.vlen);
+        } else {
+            vlenList.push_back(0);
+            entry.vlen = 0;
+        }
+        entries.push_back(entry);
+    }
+    // 将结果放入vLog中，并得到offsetList
+    std::vector<uint64_t> offsetList = vlog.addNewEntrys(entries,length);
+
+    // 计算SSTable的头部
+    currentTimeStamp++;
+    uint64_t timeStamp = currentTimeStamp;
+    uint64_t keyNum = keyList.size();
+    uint64_t minKey = keyList.front();
+    uint64_t maxKey = keyList.back();
+
+    // 生成布隆过滤器
+    BloomFilter bloomFilter;
+    for(auto &it : keyList){ // 遍历keyList并放入布隆过滤器
+        bloomFilter.insert(it);
+    }
+
+    // 计算char数组
+    char * bytes = new char[SSTABLE_MAX_BYTES];
+    uint64_to_byte(timeStamp, &bytes);
+    uint64_to_byte(keyNum, &bytes);
+    uint64_to_byte(minKey, &bytes);
+    uint64_to_byte(maxKey, &bytes);
+    bloomFilter.bloom_to_byte(&bytes);
+    for(int i = 0; i < keyNum; i++){
+        uint64_to_byte(keyList[i], &bytes);
+        uint64_to_byte(offsetList[i], &bytes);
+        uint32_to_byte(vlenList[i], &bytes);
+    }
+
+    std::fstream file;
+    file.open(file_path, std::fstream::out | std::fstream::binary);
+    file.write(bytes,HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * keyNum);
+    file.close();
+    delete [] bytes;
 }
