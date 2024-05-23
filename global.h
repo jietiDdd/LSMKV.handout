@@ -11,6 +11,7 @@
 #include <tuple>
 #include <map>
 #include <fstream>
+#include <algorithm>
 #include "utils.h"
 
 // 有关跳表
@@ -27,6 +28,7 @@ extern uint64_t currentTimeStamp = 0; // 最新的时间戳
 
 // 有关vLog
 #define VLOG_ENTRY_HEAD 15 // entry除了value之外部分的字节数
+#define VLOG_CHECK_HEAD 3 // entry在key之前的字节数
 
 // 一些辅助函数，实现相关数据与二进制数据的相互转换，方便读写文件
 void char_to_byte(char data, char **dst)

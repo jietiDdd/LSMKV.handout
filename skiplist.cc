@@ -158,11 +158,14 @@ void Skiplist::scan(uint64_t k1,uint64_t k2,
 /*
  * 当Memtable大小即将溢出时，将memtable写入硬盘
  */
-void Skiplist::to_disk(const std::string &file_path, vLog &vlog)
+void Skiplist::to_disk(const std::string &file_path, vLog &vlog, 
+    std::map<std::uint32_t, std::map<std::string, CacheTable>> &cacheMap)
 {
+    // 在进行SSTable硬盘写入的同时写入缓存，提高效率
+    CacheTable cacheTable;
+    // TODO:减少计算
+
     // 首先遍历memtable，将所有结果压入到一个entry数组中
-    std::vector<uint64_t> keyList;
-    std::vector<uint32_t> vlenList;
     std::vector<Entry> entries;
     uint64_t length = 0; // 计算新插入vLog的总长度
 
@@ -170,10 +173,10 @@ void Skiplist::to_disk(const std::string &file_path, vLog &vlog)
     while(p->forward[0]->isData != false){
         p = p->forward[0];
         Entry entry;
-        keyList.push_back(p->key);
+        cacheTable.keyList.push_back(p->key);
         // 检查是否已被删除，如果是，需要设置vlen为0
         if(p->value != "~DELETED"){
-            vlenList.push_back(p->value.length());
+            cacheTable.vlenList.push_back(p->value.length());
 
             entry.key = p->key;
             entry.vlen = p->value.length();
@@ -193,39 +196,40 @@ void Skiplist::to_disk(const std::string &file_path, vLog &vlog)
 
             length += (VLOG_ENTRY_HEAD + entry.vlen);
         } else {
-            vlenList.push_back(0);
+            cacheTable.vlenList.push_back(0);
             entry.vlen = 0;
         }
         entries.push_back(entry);
     }
     // 将结果放入vLog中，并得到offsetList
-    std::vector<uint64_t> offsetList = vlog.addNewEntrys(entries,length);
+    cacheTable.offsetList = vlog.addNewEntrys(entries,length);
 
     // 计算SSTable的头部
     currentTimeStamp++;
-    uint64_t timeStamp = currentTimeStamp;
-    uint64_t keyNum = keyList.size();
-    uint64_t minKey = keyList.front();
-    uint64_t maxKey = keyList.back();
+    cacheTable.timeStamp = currentTimeStamp;
+    cacheTable.KVNumber = cacheTable.keyList.size();
+    cacheTable.minKey = cacheTable.keyList.front();
+    cacheTable.maxKey = cacheTable.keyList.back();
 
     // 生成布隆过滤器
-    BloomFilter bloomFilter;
-    for(auto &it : keyList){ // 遍历keyList并放入布隆过滤器
-        bloomFilter.insert(it);
+    for(auto &it : cacheTable.keyList){ // 遍历keyList并放入布隆过滤器
+        cacheTable.BloomFilter.insert(it);
     }
 
     // 计算char数组
     char * bytes = new char[SSTABLE_MAX_BYTES];
-    uint64_to_byte(timeStamp, &bytes);
-    uint64_to_byte(keyNum, &bytes);
-    uint64_to_byte(minKey, &bytes);
-    uint64_to_byte(maxKey, &bytes);
-    bloomFilter.bloom_to_byte(&bytes);
+    uint64_to_byte(cacheTable.timeStamp, &bytes);
+    uint64_to_byte(cacheTable.KVNumber, &bytes);
+    uint64_to_byte(cacheTable.minKey, &bytes);
+    uint64_to_byte(cacheTable.maxKey, &bytes);
+    cacheTable.BloomFilter.bloom_to_byte(&bytes);
     for(int i = 0; i < keyNum; i++){
-        uint64_to_byte(keyList[i], &bytes);
-        uint64_to_byte(offsetList[i], &bytes);
-        uint32_to_byte(vlenList[i], &bytes);
+        uint64_to_byte(cacheTable.keyList[i], &bytes);
+        uint64_to_byte(cacheTable.offsetList[i], &bytes);
+        uint32_to_byte(cacheTable.vlenList[i], &bytes);
     }
+    // 插入到缓存的level 0
+    cacheMap[0].insert(std::make_pair(file_path, cacheTable));
 
     std::fstream file;
     file.open(file_path, std::fstream::out | std::fstream::binary);

@@ -29,6 +29,12 @@ public:
      */
     std::map<std::uint32_t, std::map<std::string, CacheTable>> cacheMap;
 
+    // SSTable根目录
+    std::string dir_path;
+
+    // 表示各个level的文件数的map
+    std::map<uint32_t, uint64_t> levelFileNum;
+
     SSTable();
 
     ~SSTable();
@@ -46,4 +52,17 @@ public:
     // TODO:使用优先级队列进行扫描操作
     std::map<uint64_t, std::string> scanWithHeap(uint64_t k1,uint64_t k2, vLog &vlog){ };
 
+    void compaction();
+
+    void select_overflow(std::map<std::string, CacheTable> cacheList, std::vector<std::pair<std::string, CacheTable>> &selected, uint32_t level,
+        uint64_t &minKey, uint64_t &maxKey, uint64_t &timeStamp);
+
+    void select_next_level(std::map<std::string, CacheTable> cacheList, std::vector<std::pair<std::string, CacheTable>> &selected, uint32_t level,
+        uint64_t minKey, uint64_t maxKey, uint64_t &timeStamp);
+
+    void merge(std::vector<uint64_t> &keyList, std::vector<uint64_t> &offsetList, std::vector<uint32_t> &vlenList,
+    std::vector<CacheTable> &selected);
+
+    void set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std::vector<uint64_t> offsetList, std::vector<uint32_t> vlenList,
+    uint32_t level);
 };

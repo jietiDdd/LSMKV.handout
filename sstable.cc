@@ -155,3 +155,226 @@ void SSTable::scanByOne(CacheTable cacheTable, uint64_t k1, uint64_t k2,
         }
     }
 }
+
+/*
+ * 合并操作（最难的）
+ * 操作是硬盘写入和缓存写入同时进行，但只读缓存
+ */
+void SSTable::compaction()
+{
+    // 在PUT操作后都要调用合并操作，为此需要先检验要不要合并
+    if(cacheMap[0].size() <= levelFileNum[0]){
+        return; // 没有超出，返回
+    }
+
+    // 遍历level，进行合并
+    for(uint32_t level = 0; cacheMap[level].size() > levelFileNum[level]; level++){ // 检验是否超出当前层的容量
+        // 对于每一个level的操作，分解为四个函数处理
+        // 1. 统计当前level需要合并的文件
+        std::vector<std::pair<std::string, CacheTable>> selected; // 所有需要合并的文件
+        std::uint64_t minKey; // 便于找下一层的交集文件
+        std::uint64_t maxKey;
+        std::uint64_t timeStamp; // 合并后这些文件的新时间戳
+        select_overflow(cacheMap[level], selected, level, minKey, maxKey, timeStamp);
+
+        // 2. 找到下一层中键区间有交集的文件
+        uint32_t nextLevel = level + 1;
+        if(levelFileNum.find(nextLevel) == levelFileNum.end()){ // 先看看下一层是否存在，不存在就创建
+            levelFileNum[nextLevel] = 2 * (nextLevel + 1);
+            utils::mkdir(dir_path + "/level-" + std::to_string(nextLevel));
+        } else { // 已有下一层，才进行寻找
+            select_next_level(cacheMap[nextLevel], selected, nextLevel,minKey, maxKey, timeStamp);
+        }
+
+        // 2.5 删除原来的文件，并更新selected(毕竟路径无效了)
+        std::vector<CacheTable> selectedSST;
+        for(auto &cachePair : selected){
+            utils::rmfile(cachePair.first);
+            selectedSST.emplace_back(cachePair.second);
+        }
+
+        // 3. 使用归并排序
+        std::vector<uint64_t> keyList; // 存放结果
+        std::vector<uint64_t> offsetList;
+        std::vector<uint32_t> vlenList;
+        merge(keyList, offsetList, vlenList, selectedSST);
+
+        // 4. 将结果切分后放入新的文件
+        set_sstable(timeStamp, keyList, offsetList, vlenList, nextLevel);
+    }
+}
+
+/**
+ * 找到当前层的多余文件
+ * 第一优先为时间戳小，第二优先为最小键小
+*/
+void SSTable::select_overflow(std::map<std::string, CacheTable> cacheList, std::vector<std::pair<std::string, CacheTable>> &selected, uint32_t level,
+    uint64_t &minKey, uint64_t &maxKey, uint64_t &timeStamp)
+{
+    std::vector<std::pair<std::string, CacheTable>> temp(cacheList.begin(), cacheList.end());
+    // 排序
+    std::sort(temp.begin(), temp.end(), [](const auto &item1, const auto &item2){
+        return (item1.second.timeStamp < item2.second.timeStamp)
+            || ((item1.second.timeStamp == item2.second.timeStamp)
+            && (item1.second.minKey < item2.second.minKey));
+    });
+    // 计算选中的数量
+    int selectedNum = (level == 0) ? levelFileNum[0] : (cacheList.size() - levelFileNum[level]);
+    minKey = UINT64_MAX;
+    maxKey = 0;
+    timeStamp = 0;
+    // 压入到vector中
+    // 计算selected的minKey和maxKey
+    for(int i = 0; i < selectedNum; i++){
+        selected.emplace_back(temp[i]);
+        if(temp[i].second.minKey < minKey) minKey = temp[i].second.minKey;
+        if(temp[i].second.maxKey > maxKey) maxKey = temp[i].second.maxKey;
+        if(temp[i].second.timeStamp > timeStamp) timeStamp = temp[i].second.timeStamp;
+    }
+}
+
+/**
+ * 找到下一层中有键交集的文件
+ * 注意这里的level要提前加一
+*/
+void SSTable::select_next_level(std::map<std::string, CacheTable> cacheList, std::vector<std::pair<std::string, CacheTable>> &selected, uint32_t level,
+    uint64_t minKey, uint64_t maxKey, uint64_t &timeStamp)
+{
+    /* 应当提前检查
+    if(levelFileNum.find(level) == levelFileNum.end()){ // 没有创建
+        levelFileNum[level] = 2 * (level + 1);
+        utils::mkdir(dir_path + "/level-" + std::to_string(level));
+    }
+    */
+    for(auto & cachePair : cacheList){
+        if(cachePair.second.minKey > maxKey || cachePair.second.maxKey < minKey){ // 没有交集
+            continue;
+        }
+        // 有交集，压入vector
+        selected.emplace_back(cachePair);
+        if(cachePair.second.timeStamp > timeStamp) timeStamp = cachePair.second.timeStamp;
+    }
+}
+
+/**
+ * 归并排序
+ * 给一个有序序列的数组，依次进行归并排序
+ * 返回一组vector
+*/
+void SSTable::merge(std::vector<uint64_t> &keyList, std::vector<uint64_t> &offsetList, std::vector<uint32_t> &vlenList,
+    std::vector<CacheTable> &selected)
+{
+    std::vector<uint64_t> key1;
+    std::vector<uint64_t> offset1;
+    std::vector<uint32_t> vlen1;
+    std::vector<uint64_t> key2;
+    std::vector<uint64_t> offset2;
+    std::vector<uint32_t> vlen2;
+    std::vector<uint64_t> timeStamp2;
+    std::vector<uint64_t> timeStampList;
+    for(int i = 0; i < selected.size(); i++){
+        key1 = selected[i].keyList;
+        offset1 = selected[i].offsetList;
+        vlen1 = selected[i].vlenList;
+        key2 = keyList;
+        offset2 = offsetList;
+        vlen2 = vlenList;
+        timeStamp2 = timeStampList;
+        uint64_t it1 = 0;
+        uint64_t it2 = 0;
+        uint64_t all = 0;
+        while(it1 < key1.size() && it2 < key2.size()){
+            if(key1[it1] < key2[it2]){ // 先放左边
+                keyList[all++] = key1[it1++];
+                offsetList[all++] = offset1[it1++];
+                vlenList[all++] = vlen1[it1++];
+                timeStampList[all++] = selected[i].timeStamp;
+            }
+            else if(key1[it1] > key2[it2]){ // 放右边
+                keyList[all++] = key2[it2++];
+                offsetList[all++] = offset2[it2++];
+                vlenList[all++] = vlen2[it2++];
+                timeStampList[all++] = timeStamp2[it2++];
+            }
+            else if(selected[i].timeStamp < timeStamp2[it2]){ // 放右边，且舍弃左边，即用新记录覆盖
+                keyList[all++] = key2[it2++];
+                offsetList[all++] = offset2[it2++];
+                vlenList[all++] = vlen2[it2++];
+                timeStampList[all++] = timeStamp2[it2++];
+                it1++; // 覆盖旧记录
+            }
+            else{
+                keyList[all++] = key1[it1++];
+                offsetList[all++] = offset1[it1++];
+                vlenList[all++] = vlen1[it1++];
+                timeStampList[all++] = selected[i].timeStamp;
+                it2++;
+            }
+        }
+        while(it1 < key1.size()){
+            keyList[all++] = key1[it1++];
+            offsetList[all++] = offset1[it1++];
+            vlenList[all++] = vlen1[it1++];
+            timeStampList[all++] = selected[i].timeStamp;
+        }
+        while(it2 < key2.size()){
+            keyList[all++] = key2[it2++];
+            offsetList[all++] = offset2[it2++];
+            vlenList[all++] = vlen2[it2++];
+            timeStampList[all++] = timeStamp2[it2++];
+        }
+    }
+}
+
+void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std::vector<uint64_t> offsetList, std::vector<uint32_t> vlenList,
+    uint32_t level){
+    uint64_t allKVNumber = keyList.size(); // 总的键值对数量
+    uint64_t currentKVNumber; // 当前文件键值对数量
+    while(allKVNumber > 0){
+        if(allKVNumber <= MAX_KEY_NUMBER){ // 最后一个
+            currentKVNumber = allKVNumber;
+            allKVNumber = 0;
+        } else {
+            allKVNumber -= MAX_KEY_NUMBER;
+            currentKVNumber = MAX_KEY_NUMBER;
+        }
+        // 乱写的，后续应当校验
+        std::string path = dir_path + "/level-" + std::to_string(level) + std::to_string(cacheMap[level].size()) + ".sst";
+        // 初始化缓存
+        CacheTable cacheTable;
+        cacheTable.timeStamp = timeStamp;
+        cacheTable.KVNumber = currentKVNumber;
+        cacheTable.minKey = keyList[0];
+        cacheTable.maxKey = keyList[currentKVNumber - 1];
+        cacheTable.keyList.assign(keyList.begin(), keyList.begin() + currentKVNumber);
+        keyList.erase(keyList.begin(), keyList.begin() + currentKVNumber);
+        cacheTable.offsetList.assign(offsetList.begin(), offsetList.begin() + currentKVNumber);
+        offsetList.erase(offsetList.begin(), offsetList.begin() + currentKVNumber);
+        cacheTable.vlenList.assign(vlenList.begin(), vlenList.begin() + currentKVNumber);
+        vlenList.erase(vlenList.begin(), vlenList.begin() + currentKVNumber);
+        // 计算布隆过滤器
+        for(auto &it : cacheTable.keyList){
+            cacheTable.BloomFilter.insert(it);
+        }
+        // 计算char数组
+        char * bytes = new char[SSTABLE_MAX_BYTES];
+        uint64_to_byte(cacheTable.timeStamp, &bytes);
+        uint64_to_byte(cacheTable.KVNumber, &bytes);
+        uint64_to_byte(cacheTable.minKey, &bytes);
+        uint64_to_byte(cacheTable.maxKey, &bytes);
+        cacheTable.BloomFilter.bloom_to_byte(&bytes);
+        for(int i = 0; i < currentKVNumber; i++){
+            uint64_to_byte(cacheTable.keyList[i], &bytes);
+            uint64_to_byte(cacheTable.offsetList[i], &bytes);
+            uint32_to_byte(cacheTable.vlenList[i], &bytes);
+        }
+        cacheMap[level].insert(std::make_pair(path, cacheTable));
+
+        // 写入硬盘
+        std::fstream file;
+        file.open(path, std::fstream::out | std::fstream::binary);
+        file.write(bytes, HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * currentKVNumber);
+        file.close();
+        delete [] bytes;
+    }
+}

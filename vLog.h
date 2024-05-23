@@ -1,6 +1,7 @@
 #pragma once
 
 #include "global.h"
+#include "skiplist.h" // 。。。
 
 // 展示单个vLog entry
 struct Entry{
@@ -20,4 +21,6 @@ public:
     std::vector<uint64_t> addNewEntrys(std::vector<Entry> entries, uint64_t length); // 实现memtable将数据写入vLog，返回偏移量
     
     std::string get(uint64_t offset, uint32_t vlen);
+
+    void garbageCollection(uint64_t chunk_size, Skiplist &memtable);
 };

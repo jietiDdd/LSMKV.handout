@@ -41,3 +41,19 @@ std::string vLog::get(uint64_t offset, uint32_t vlen)
     file.close();
     return std::string(value,vlen);
 }
+
+/*
+// 垃圾回收，维护tail指针
+void vLog::garbageCollection(uint64_t chunk_size, Skiplist &memtable)
+{
+    uint64_t length = 0; // 记录已经扫过的区域字节大小
+    std::fstream file;
+    file.open(path, std::fstream::binary | std::fstream::in);
+    file.seekg(tail, std::ios::beg);
+    while(length < chunk_size){
+        file.seekg(VLOG_ENTRY_HEAD);
+        
+    }
+}
+*/
+

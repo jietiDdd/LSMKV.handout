@@ -66,5 +66,6 @@ public:
     void scan(uint64_t k1,uint64_t k2,
         std::map<uint64_t, std::string> &map, std::map<uint64_t, uint64_t> &timeStamp);
 
-    void to_disk(const std::string &file_path, vLog &vlog);
+    void to_disk(const std::string &file_path, vLog &vlog,
+        std::map<std::uint32_t, std::map<std::string, CacheTable>> &cacheMap);
 };
