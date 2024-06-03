@@ -6,8 +6,8 @@ std::vector<uint64_t> vLog::addNewEntrys(std::vector<Entry> entries, uint64_t le
     std::fstream file;
     file.open(path, std::fstream::out | std::fstream::binary);
     file.seekp(0, std::ios::end); // head指针在文件结尾
-    uint64_t head = file.tellp(); // 获取head指针
-    char* bytes = new char[length + 1];
+    head = file.tellp(); // 获取head指针
+    char* bytes = new char[length];
     char* init = bytes;
     std::vector<uint64_t> offset; // 偏移量
     // 遍历entries，将他们加入到bytes这一个缓存的char数组
@@ -25,9 +25,10 @@ std::vector<uint64_t> vLog::addNewEntrys(std::vector<Entry> entries, uint64_t le
         uint32_to_byte(it.vlen, &bytes);
         string_to_byte(it.value, &bytes);
     }
-    file.write(bytes, length);
+    file.write(init, length);
     file.close();
-    delete [] bytes;
+    delete [] init;
+    return offset;
 }
 
 // 根据偏移量和值长度找到相应的值
@@ -36,10 +37,12 @@ std::string vLog::get(uint64_t offset, uint32_t vlen)
     std::fstream file;
     file.open(path, std::fstream::in | std::fstream::binary);
     file.seekg(offset + VLOG_ENTRY_HEAD, std::ios::beg); // 根据偏移量定位到对应的entry
-    char value[vlen];
-    file.read(value,vlen); // 根据值长度读取
+    char *val = new char[vlen];
+    file.read(val,vlen); // 根据值长度读取
     file.close();
-    return std::string(value,vlen);
+    std::string result = std::string(val,vlen);
+    delete [] val;
+    return result;
 }
 
 /*
@@ -64,6 +67,11 @@ void vLog::setHeadAndTail()
     // 根据文件大小设置head
     std::fstream file;
     file.open(path, std::fstream::in | std::fstream::binary);
+    if(!file.is_open()){
+        file.open(path, std::fstream::out | std::fstream::binary);
+        head = tail = 0;
+        return;
+    }
     file.seekg(0,std::ios::end);
     head = file.tellg();
     file.seekg(0,std::ios::beg);

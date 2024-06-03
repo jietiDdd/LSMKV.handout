@@ -21,7 +21,7 @@ struct Skiplist_Node{
         this->isData = isData;
 
         for(int i = 0; i <= level; i++){
-            forward.push_back(NULL);
+            this->forward.push_back(NULL);
         }
     }
 

@@ -2,6 +2,10 @@
 
 #include "kvstore_api.h"
 #include "skiplist.h"
+#include "sstable.h"
+#include "vlog.h"
+#include "global.h"
+#include "bloomfilter.h"
 
 class KVStore : public KVStoreAPI
 {
@@ -9,9 +13,9 @@ class KVStore : public KVStoreAPI
 private:
 	Skiplist * Memtable;
 
-	SSTable SSTable;
+	SSTable sstable;
 
-	vLog vLog;
+	vLog VLog;
 public:
 	KVStore(const std::string &dir, const std::string &vlog);
 

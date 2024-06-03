@@ -30,7 +30,7 @@ Skiplist::~Skiplist()
 // PUT操作
 bool Skiplist::put(uint64_t key, const std::string &value)
 {
-    std::vector<Skiplist_Node*> update;
+    std::vector<Skiplist_Node*> update(MAX_LEVEL + 1);
     Skiplist_Node *p = head;
 
     // 从顶层开始查找插入位置
@@ -117,6 +117,9 @@ bool Skiplist::del(uint64_t key)
         }
         // 搜索到记录，将其记录为删除标记，返回true
         if(p->key == key){
+            if(p->value == "~DELETED~"){
+                return false; // 防止二次删除
+            }
             p->value = "~DELETED~";
             return true;
         }  
@@ -152,8 +155,8 @@ void Skiplist::scan(uint64_t k1,uint64_t k2,
     while(p->isData == true && p->key <= k2){
         if(p->value != "~DELETED"){
             // 未被标记为删除，放入list中
-            map.insert(std::make_pair(p->key,p->value));
-            timeStamp.insert(std::make_pair(p->key, currentTimeStamp)); // 使用当前的时间戳，保证跳表的才是最新纪录
+            map[p->key] = p->value;
+            timeStamp[p->key] = currentTimeStamp; // 使用当前的时间戳，保证跳表的才是最新纪录
         }
         p = p->forward[0];
     }
@@ -209,7 +212,6 @@ void Skiplist::to_disk(const std::string &file_path, vLog &vlog,
     cacheTable.offsetList = vlog.addNewEntrys(entries,length);
 
     // 计算SSTable的头部
-    currentTimeStamp++;
     cacheTable.timeStamp = currentTimeStamp;
     cacheTable.KVNumber = cacheTable.keyList.size();
     cacheTable.minKey = cacheTable.keyList.front();
@@ -217,27 +219,29 @@ void Skiplist::to_disk(const std::string &file_path, vLog &vlog,
 
     // 生成布隆过滤器
     for(auto &it : cacheTable.keyList){ // 遍历keyList并放入布隆过滤器
-        cacheTable.BloomFilter.insert(it);
+        cacheTable.bloomFilter.insert(it);
     }
 
     // 计算char数组
     char * bytes = new char[SSTABLE_MAX_BYTES];
+    char *init = bytes;
     uint64_to_byte(cacheTable.timeStamp, &bytes);
     uint64_to_byte(cacheTable.KVNumber, &bytes);
     uint64_to_byte(cacheTable.minKey, &bytes);
     uint64_to_byte(cacheTable.maxKey, &bytes);
-    cacheTable.BloomFilter.bloom_to_byte(&bytes);
+    cacheTable.bloomFilter.bloom_to_byte(&bytes);
     for(int i = 0; i < keyNum; i++){
         uint64_to_byte(cacheTable.keyList[i], &bytes);
         uint64_to_byte(cacheTable.offsetList[i], &bytes);
         uint32_to_byte(cacheTable.vlenList[i], &bytes);
     }
     // 插入到缓存的level 0
-    cacheMap[0].insert(std::make_pair(file_path, cacheTable));
+    cacheMap[0][file_path] = cacheTable;
 
     std::fstream file;
     file.open(file_path, std::fstream::out | std::fstream::binary);
-    file.write(bytes,HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * keyNum);
+    file.write(init,HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * keyNum);
     file.close();
-    delete [] bytes;
+    delete [] init;
+    currentTimeStamp++; // 最后再加，即这个全局变量表征跳表的时间戳
 }

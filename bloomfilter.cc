@@ -3,16 +3,7 @@
 // 构造函数
 BloomFilter::BloomFilter()
 {
-    this->data = new uint32_t[length];
-    for(int i = 0; i < length; i++){
-        data[i] = 0;
-    }
-}
-
-// 析构函数
-BloomFilter::~BloomFilter()
-{
-    delete [] data;
+    this->data.assign(length, 0);
 }
 
 // 在将Memtable转换为SSTable时，一一插入所有键，此后将BloomFilter存入硬盘
@@ -47,8 +38,7 @@ bool BloomFilter::search(uint64_t key)
 void BloomFilter::bloom_to_byte(char ** dst)
 {
     for(int i = 0; i < length; i++){
-        **dst = *(data + i);
-        (*dst) += 1;
+        uint32_to_byte(data[i], dst);
     }
 }
 
@@ -56,7 +46,6 @@ void BloomFilter::bloom_to_byte(char ** dst)
 void BloomFilter::byte_to_bloom(char **src)
 {
     for(int i = 0; i < length; i++){
-        data[i] = **src;
-        (*src) += 1;
+        data[i] = byte_to_uint32(src);
     }
 }

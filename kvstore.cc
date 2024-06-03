@@ -3,18 +3,20 @@
 
 KVStore::KVStore(const std::string &dir, const std::string &vlog) : KVStoreAPI(dir, vlog)
 {
-	SSTable.dir_path = dir;
-	vLog.path = vlog;
+	currentTimeStamp = 1;
+	sstable.dir_path = dir;
+	VLog.path = vlog;
 	Memtable = new Skiplist();
 	// 进行相关的初始化
-	SSTable.diskToCache();
-	vLog.setHeadAndTail();
+	sstable.diskToCache();
+	VLog.setHeadAndTail();
 }
 
 KVStore::~KVStore()
 {
-	Memtable->to_disk(SSTable.dir_path,vLog,SSTable.cacheMap);
+	Memtable->to_disk(sstable.dir_path,VLog,sstable.cacheMap);
 	delete Memtable;
+	// 是否需要清除缓存
 }
 
 /**
@@ -24,9 +26,9 @@ KVStore::~KVStore()
 void KVStore::put(uint64_t key, const std::string &s)
 {
 	if(!Memtable->put(key, s)){ // 超过16KB，压入硬盘
-		std::string file_path = SSTable.putNewFile();
-		Memtable->to_disk(file_path, vLog ,SSTable.cacheMap);
-		SSTable.compaction(); // 进行合并
+		std::string file_path = sstable.putNewFile();
+		Memtable->to_disk(file_path, VLog, sstable.cacheMap);
+		sstable.compaction(); // 进行合并
 		delete Memtable;
 		Memtable = new Skiplist();
 		Memtable->put(key,s); // 重新插入
@@ -49,7 +51,7 @@ std::string KVStore::get(uint64_t key)
 	}
 	value = "";
 	uint64_t offset;
-	if(SSTable.get(key,value,vLog,offset)){
+	if(sstable.get(key,value,VLog,offset)){
 		// 在SSTable中查找
 		return value;
 	}
@@ -72,18 +74,22 @@ bool KVStore::del(uint64_t key)
 void KVStore::reset()
 {
 	delete Memtable;
-	for(auto &sstableLevel : SSTable.cacheMap){ // 遍历每层
+	for(auto &sstableLevel : sstable.cacheMap){ // 遍历每层
 		for(auto &sstable : sstableLevel.second){ // 遍历每层每个文件
-			utils::rmfile(sstable.first.c_str());
+			utils::rmfile(sstable.first);
 		}
 		// 删除整层目录
-		std::string levelPath = SSTable.dir_path + "level-" + std::to_string(sstableLevel.first);
-		utils::rmdir(levelPath.c_str());
+		std::string levelPath = sstable.dir_path + "/level-" + std::to_string(sstableLevel.first);
+		utils::rmdir(levelPath);
 		sstableLevel.second.clear();
 	}
-	SSTable.cacheMap.clear(); // 清除缓存
-	utils::rmfile(vLog.path.c_str());
-	vLog.head = vLog.tail = 0;
+	sstable.cacheMap.clear(); // 清除缓存
+	utils::rmfile(VLog.path);
+	VLog.head = VLog.tail = 0;
+	
+	// 清除后应当重新初始化
+	currentTimeStamp = 1;
+	Memtable = new Skiplist();
 }
 
 /**
@@ -99,7 +105,7 @@ void KVStore::scan(uint64_t key1, uint64_t key2, std::list<std::pair<uint64_t, s
 	// 先扫描Memtable，其时间戳最大
 	Memtable->scan(key1,key2,map,timeStamp);
 	// 再扫描硬盘
-	SSTable.scan(key1,key2,map,timeStamp,vLog);
+	sstable.scan(key1,key2,map,timeStamp,VLog);
 	// map->list
 	for(auto & pair : map){
 		list.push_back(pair);
@@ -113,17 +119,17 @@ void KVStore::scan(uint64_t key1, uint64_t key2, std::list<std::pair<uint64_t, s
 void KVStore::gc(uint64_t chunk_size)
 {
 	std::fstream file;
-	file.open(vLog.path, std::fstream::in | std::fstream::binary);
+	file.open(VLog.path, std::fstream::in | std::fstream::binary);
 	// 依次扫描Entry
-	uint64_t current = vLog.tail;
-	while((current - vLog.tail) <= chunk_size){
+	uint64_t current = VLog.tail;
+	while((current - VLog.tail) <= chunk_size){
 		Entry *entry = new Entry();
 		file.read(&entry->magic,sizeof(char));
 		file.read(reinterpret_cast<char*>(&entry->checkNum),sizeof(uint16_t));
 		file.read(reinterpret_cast<char*>(&entry->key),sizeof(uint64_t));
 		uint64_t offset;
 		std::string value;
-		if(SSTable.get(entry->key,value,vLog,offset)){
+		if(sstable.get(entry->key,value,VLog,offset)){
 			if(offset == current){
 				// 偏移量正确
 				file.read(reinterpret_cast<char*>(&entry->vlen), sizeof(uint32_t));
@@ -137,8 +143,8 @@ void KVStore::gc(uint64_t chunk_size)
 		delete entry;
 	}
 	// Memtable写入硬盘
-	Memtable->to_disk(SSTable.dir_path,vLog,SSTable.cacheMap);
+	Memtable->to_disk(sstable.dir_path,VLog,sstable.cacheMap);
 	// 打空洞
-	utils::de_alloc_file(vLog.path,vLog.tail,current - vLog.tail);
-	vLog.tail = current;
+	utils::de_alloc_file(VLog.path,VLog.tail,current - VLog.tail);
+	VLog.tail = current;
 }

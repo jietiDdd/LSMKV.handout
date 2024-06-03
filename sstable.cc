@@ -38,7 +38,7 @@ bool SSTable::getByOne(CacheTable cacheTable, uint64_t key, std::string &value, 
         return false;
     }
     // 再检查布隆过滤器
-    if(!cacheTable.BloomFilter.search(key)){
+    if(!cacheTable.bloomFilter.search(key)){
         return false;
     }
     // 最后再考虑遍历，需要使用二分查找法
@@ -148,14 +148,14 @@ void SSTable::scanByOne(CacheTable cacheTable, uint64_t k1, uint64_t k2,
     uint64_t key;
     uint64_t thisTimeStamp = cacheTable.timeStamp;
     // 扫描索引区间，注意更新时间戳
-    for(int i = less; i <= max; i++){
+    for(uint64_t i = less; i <= max; i++){
         key = keyList[i];
         if(timeStamp.find(key) != timeStamp.end() && timeStamp.at(key) > thisTimeStamp){ // 原来的记录更加新，不必插入
             continue;
         }
         if(vlenList[i] != 0){ // 说明未删除，需要插入
-            map.insert(std::make_pair(key, vlog.get(offsetList[i], vlenList[i])));
-            timeStamp.insert(std::make_pair(key, thisTimeStamp));
+            map[key] = vlog.get(offsetList[i], vlenList[i]);
+            timeStamp[key] = thisTimeStamp;
             continue;
         }
         // 已删除，也在map中删去
@@ -282,7 +282,7 @@ void SSTable::merge(std::vector<uint64_t> &keyList, std::vector<uint64_t> &offse
     std::vector<uint32_t> vlen2;
     std::vector<uint64_t> timeStamp2;
     std::vector<uint64_t> timeStampList;
-    for(int i = 0; i < selected.size(); i++){
+    for(size_t i = 0; i < selected.size(); i++){
         key1 = selected[i].keyList;
         offset1 = selected[i].offsetList;
         vlen1 = selected[i].vlenList;
@@ -349,7 +349,7 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
             currentKVNumber = MAX_KEY_NUMBER;
         }
         // 乱写的，后续应当校验
-        std::string path = dir_path + "level-" + std::to_string(level) + std::to_string(cacheMap[level].size()) + ".sst";
+        std::string path = dir_path + "/level-" + std::to_string(level) + "/" + std::to_string(cacheMap[level].size()) + ".sst";
         // 初始化缓存
         CacheTable cacheTable;
         cacheTable.timeStamp = timeStamp;
@@ -364,28 +364,29 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
         vlenList.erase(vlenList.begin(), vlenList.begin() + currentKVNumber);
         // 计算布隆过滤器
         for(auto &it : cacheTable.keyList){
-            cacheTable.BloomFilter.insert(it);
+            cacheTable.bloomFilter.insert(it);
         }
         // 计算char数组
         char * bytes = new char[SSTABLE_MAX_BYTES];
+        char * init = bytes;
         uint64_to_byte(cacheTable.timeStamp, &bytes);
         uint64_to_byte(cacheTable.KVNumber, &bytes);
         uint64_to_byte(cacheTable.minKey, &bytes);
         uint64_to_byte(cacheTable.maxKey, &bytes);
-        cacheTable.BloomFilter.bloom_to_byte(&bytes);
-        for(int i = 0; i < currentKVNumber; i++){
+        cacheTable.bloomFilter.bloom_to_byte(&bytes);
+        for(uint64_t i = 0; i < currentKVNumber; i++){
             uint64_to_byte(cacheTable.keyList[i], &bytes);
             uint64_to_byte(cacheTable.offsetList[i], &bytes);
             uint32_to_byte(cacheTable.vlenList[i], &bytes);
         }
-        cacheMap[level].insert(std::make_pair(path, cacheTable));
+        cacheMap[level][path] = cacheTable;
 
         // 写入硬盘
         std::fstream file;
         file.open(path, std::fstream::out | std::fstream::binary);
-        file.write(bytes, HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * currentKVNumber);
+        file.write(init, HEAD_LENGTH + BLOOM_LENGTH + CELL_LENGTH * currentKVNumber);
         file.close();
-        delete [] bytes;
+        delete [] init;
     }
 }
 
@@ -393,11 +394,11 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
 // 返回文件路径
 std::string SSTable::putNewFile()
 {
-    std::string levelPath = dir_path + "level-0/";
+    std::string levelPath = dir_path + "/level-0";
     if(cacheMap[0].empty()){ // level-0为空，需要创建
-        utils::mkdir(levelPath.c_str());
+        utils::mkdir(levelPath);
     }
-    std::string filePath = levelPath + std::to_string(cacheMap[0].size()) + ".sst";
+    std::string filePath = levelPath + "/" + std::to_string(cacheMap[0].size()) + ".sst";
     return filePath;
 }
 
@@ -405,9 +406,11 @@ std::string SSTable::putNewFile()
 // 即对缓存的初始化
 void SSTable::diskToCache()
 {
+    // 这个函数并不会被reset调用，因此还承担找到最新时间戳的职责
+    uint64_t getTimeStamp = 0;
     for(int i = 0; ; i++){
         // 查找各层目录
-        std::string levelPath = dir_path + "level-" + std::to_string(i);
+        std::string levelPath = dir_path + "/level-" + std::to_string(i);
         if(utils::dirExists(levelPath)){
             // 存在，遍历当前层下的文件
             std::vector<std::string> filePath;
@@ -420,22 +423,27 @@ void SSTable::diskToCache()
                 std::streampos fileSize = file.tellg();
                 file.seekg(0, std::ios::beg);
                 char *bytes = new char[fileSize];
+                char *init = bytes;
                 file.read(bytes, fileSize);
                 file.close();
                 // 进行初始化
                 CacheTable cacheTable;
                 cacheTable.timeStamp = byte_to_uint64(&bytes);
+                if(cacheTable.timeStamp > getTimeStamp){
+                    getTimeStamp = cacheTable.timeStamp;
+                }
                 cacheTable.KVNumber = byte_to_uint64(&bytes);
                 cacheTable.minKey = byte_to_uint64(&bytes);
                 cacheTable.maxKey = byte_to_uint64(&bytes);
-                cacheTable.BloomFilter.bloom_to_byte(&bytes);
-                for(int j = 0; j < cacheTable.KVNumber; j++){
+                cacheTable.bloomFilter.bloom_to_byte(&bytes);
+                for(uint64_t j = 0; j < cacheTable.KVNumber; j++){
                     cacheTable.keyList.push_back(byte_to_uint64(&bytes));
                     cacheTable.offsetList.push_back(byte_to_uint64(&bytes));
                     cacheTable.vlenList.push_back(byte_to_uint32(&bytes));
                 }
                 // 放入到缓存中
-                cacheMap[i].insert(std::make_pair(filePath[fileNum - 1],cacheTable));
+                cacheMap[i][filePath[fileNum - 1]] = cacheTable;
+                delete [] init;
             }
             levelFileNum[i] = 2 * (i - 1); 
         }
@@ -444,4 +452,5 @@ void SSTable::diskToCache()
             break;
         }
     }
+    currentTimeStamp = getTimeStamp + 1;
 }
