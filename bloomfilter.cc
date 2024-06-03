@@ -53,12 +53,10 @@ void BloomFilter::bloom_to_byte(char ** dst)
 }
 
 // 将字节数组变成布隆过滤器
-BloomFilter BloomFilter::byte_to_bloom(char **src)
+void BloomFilter::byte_to_bloom(char **src)
 {
-    BloomFilter bloomFilter;
     for(int i = 0; i < length; i++){
-        bloomFilter.data[i] = **src;
+        data[i] = **src;
         (*src) += 1;
     }
-    return bloomFilter;
 }

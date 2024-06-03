@@ -34,9 +34,9 @@ public:
 
     SSTable();
 
-    bool get(uint64_t key, std::string &value, vLog &vlog);
+    bool get(uint64_t key, std::string &value, vLog &vlog, uint64_t &offset);
 
-    bool getByOne(CacheTable cacheTable, uint64_t key, std::string &value, vLog &vlog);
+    bool getByOne(CacheTable cacheTable, uint64_t key, std::string &value, vLog &vlog, uint64_t &offset);
 
     void scan(uint64_t k1,uint64_t k2, 
         std::map<uint64_t, std::string> &map, std::map<uint64_t, uint64_t> &timeStamp, vLog &vlog);

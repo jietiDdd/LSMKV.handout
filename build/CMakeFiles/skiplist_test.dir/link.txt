@@ -1,1 +1,0 @@
-/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/skiplist_test.dir/skiplist.cc.o CMakeFiles/skiplist_test.dir/myunittests/skiplist_test.cc.o -o skiplist_test  lib/libgtest_main.a lib/libgtest.a 

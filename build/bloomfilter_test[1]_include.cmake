@@ -1,5 +1,0 @@
-if(EXISTS "/home/cdm/桌面/LSMKV.handout/build/bloomfilter_test[1]_tests.cmake")
-  include("/home/cdm/桌面/LSMKV.handout/build/bloomfilter_test[1]_tests.cmake")
-else()
-  add_test(bloomfilter_test_NOT_BUILT bloomfilter_test_NOT_BUILT)
-endif()

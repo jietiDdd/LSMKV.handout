@@ -1,1 +1,0 @@
-/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/kvstore_test.dir/my_special_unittests/kvstore_test.cc.o CMakeFiles/kvstore_test.dir/vlog.cc.o CMakeFiles/kvstore_test.dir/kvstore.cc.o CMakeFiles/kvstore_test.dir/sstable.cc.o CMakeFiles/kvstore_test.dir/bloomfilter.cc.o CMakeFiles/kvstore_test.dir/skiplist.cc.o -o kvstore_test  lib/libgtest_main.a lib/libgtest.a 

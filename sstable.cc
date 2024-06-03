@@ -10,7 +10,7 @@ SSTable::SSTable()
 
 
 // 在SSTable中查找，注意是在缓存中查找
-bool SSTable::get(uint64_t key, std::string &value, vLog &vlog)
+bool SSTable::get(uint64_t key, std::string &value, vLog &vlog, uint64_t &offset)
 {
     // 需要检查最新的记录，即需要检查时间戳
     uint64_t newTimeStamp = 0; // 记录最新的时间戳
@@ -18,7 +18,7 @@ bool SSTable::get(uint64_t key, std::string &value, vLog &vlog)
     for(auto &levelDir : cacheMap){ // 遍历每一层
         for(auto &cachePair : levelDir.second){ // 遍历每一层的每一个CacheTable
             if(cachePair.second.timeStamp > newTimeStamp){ // 只检查最新的记录
-                if(getByOne(cachePair.second, key, value, vlog)){ // 找到了
+                if(getByOne(cachePair.second, key, value, vlog, offset)){ // 找到了
                     newTimeStamp = cachePair.second.timeStamp;
                     isFound = true;
                 }
@@ -29,7 +29,7 @@ bool SSTable::get(uint64_t key, std::string &value, vLog &vlog)
 }
 
 // 查找缓存中的单个SSTable
-bool SSTable::getByOne(CacheTable cacheTable, uint64_t key, std::string &value, vLog &vlog)
+bool SSTable::getByOne(CacheTable cacheTable, uint64_t key, std::string &value, vLog &vlog, uint64_t &offset)
 {
     
     // 遍历元组之前，应当先检查键的最值和布隆过滤器，提高效率
@@ -51,6 +51,7 @@ bool SSTable::getByOne(CacheTable cacheTable, uint64_t key, std::string &value, 
         mid = (low + high) / 2;
         if(keyList[mid] == key){ // 找到键
             if(vlenList[mid] != 0){ // 且未被删除
+                offset = cacheTable.offsetList[mid];
                 value = vlog.get(cacheTable.offsetList[mid], vlenList[mid]);
                 return true;
             }
@@ -348,7 +349,7 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
             currentKVNumber = MAX_KEY_NUMBER;
         }
         // 乱写的，后续应当校验
-        std::string path = dir_path + "/level-" + std::to_string(level) + std::to_string(cacheMap[level].size()) + ".sst";
+        std::string path = dir_path + "level-" + std::to_string(level) + std::to_string(cacheMap[level].size()) + ".sst";
         // 初始化缓存
         CacheTable cacheTable;
         cacheTable.timeStamp = timeStamp;
@@ -398,4 +399,49 @@ std::string SSTable::putNewFile()
     }
     std::string filePath = levelPath + std::to_string(cacheMap[0].size()) + ".sst";
     return filePath;
+}
+
+// 将硬盘中的内容放入到缓存中
+// 即对缓存的初始化
+void SSTable::diskToCache()
+{
+    for(int i = 0; ; i++){
+        // 查找各层目录
+        std::string levelPath = dir_path + "level-" + std::to_string(i);
+        if(utils::dirExists(levelPath)){
+            // 存在，遍历当前层下的文件
+            std::vector<std::string> filePath;
+            int fileNum = utils::scanDir(levelPath,filePath);
+            for(;fileNum > 0; fileNum--){
+                // 一次性读取完文件
+                std::fstream file;
+                file.open(filePath[fileNum - 1], std::fstream::in | std::fstream::binary);
+                file.seekg(0,std::ios::end);
+                std::streampos fileSize = file.tellg();
+                file.seekg(0, std::ios::beg);
+                char *bytes = new char[fileSize];
+                file.read(bytes, fileSize);
+                file.close();
+                // 进行初始化
+                CacheTable cacheTable;
+                cacheTable.timeStamp = byte_to_uint64(&bytes);
+                cacheTable.KVNumber = byte_to_uint64(&bytes);
+                cacheTable.minKey = byte_to_uint64(&bytes);
+                cacheTable.maxKey = byte_to_uint64(&bytes);
+                cacheTable.BloomFilter.bloom_to_byte(&bytes);
+                for(int j = 0; j < cacheTable.KVNumber; j++){
+                    cacheTable.keyList.push_back(byte_to_uint64(&bytes));
+                    cacheTable.offsetList.push_back(byte_to_uint64(&bytes));
+                    cacheTable.vlenList.push_back(byte_to_uint32(&bytes));
+                }
+                // 放入到缓存中
+                cacheMap[i].insert(std::make_pair(filePath[fileNum - 1],cacheTable));
+            }
+            levelFileNum[i] = 2 * (i - 1); 
+        }
+        else{
+            // 不存在该目录，停止缓存
+            break;
+        }
+    }
 }

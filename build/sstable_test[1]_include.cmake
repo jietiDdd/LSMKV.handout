@@ -1,5 +1,0 @@
-if(EXISTS "/home/cdm/桌面/LSMKV.handout/build/sstable_test[1]_tests.cmake")
-  include("/home/cdm/桌面/LSMKV.handout/build/sstable_test[1]_tests.cmake")
-else()
-  add_test(sstable_test_NOT_BUILT sstable_test_NOT_BUILT)
-endif()

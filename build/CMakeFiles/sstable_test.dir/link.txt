@@ -1,1 +1,0 @@
-/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/sstable_test.dir/my_special_unittests/sstable_test.cc.o CMakeFiles/sstable_test.dir/sstable.cc.o CMakeFiles/sstable_test.dir/bloomfilter.cc.o CMakeFiles/sstable_test.dir/skiplist.cc.o -o sstable_test  lib/libgtest_main.a lib/libgtest.a 

@@ -24,5 +24,5 @@ public:
 
     void bloom_to_byte(char ** dst);
 
-    BloomFilter byte_to_bloom(char **src);
+    void byte_to_bloom(char **src);
 };

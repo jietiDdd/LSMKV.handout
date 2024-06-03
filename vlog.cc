@@ -57,3 +57,25 @@ void vLog::garbageCollection(uint64_t chunk_size, Skiplist &memtable)
 }
 */
 
+// 恢复head和tail指针
+// 用于初始化
+void vLog::setHeadAndTail()
+{
+    // 根据文件大小设置head
+    std::fstream file;
+    file.open(path, std::fstream::in | std::fstream::binary);
+    file.seekg(0,std::ios::end);
+    head = file.tellg();
+    file.seekg(0,std::ios::beg);
+    // 找到空洞后的第一个magic，以设置tail
+    tail = utils::seek_data_block(path); // 大致估计位置
+    file.seekg(tail,std::ios::beg);
+    char checkMagic;
+    while(file.get(checkMagic)){
+        if(checkMagic == 0xff){
+            // 找到magic，设置tail
+            tail = file.tellg();
+            return;
+        }
+    }
+}

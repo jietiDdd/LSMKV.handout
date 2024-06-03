@@ -1,2 +1,0 @@
-# Empty dependencies file for vlog_test.
-# This may be replaced when dependencies are built.
