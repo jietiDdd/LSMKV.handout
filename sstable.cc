@@ -1,5 +1,14 @@
 #include "sstable.h"
 
+// 初始化level
+SSTable::SSTable()
+{
+    for(int i = 0; i < 4; i++){ // 最开始4级
+        levelFileNum[i] = 2 * (i - 1);
+    }
+}
+
+
 // 在SSTable中查找，注意是在缓存中查找
 bool SSTable::get(uint64_t key, std::string &value, vLog &vlog)
 {
@@ -377,4 +386,16 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
         file.close();
         delete [] bytes;
     }
+}
+
+// 在Memtable溢出时生成新的文件
+// 返回文件路径
+std::string SSTable::putNewFile()
+{
+    std::string levelPath = dir_path + "level-0/";
+    if(cacheMap[0].empty()){ // level-0为空，需要创建
+        utils::mkdir(levelPath.c_str());
+    }
+    std::string filePath = levelPath + std::to_string(cacheMap[0].size()) + ".sst";
+    return filePath;
 }

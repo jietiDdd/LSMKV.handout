@@ -1,0 +1,1 @@
+/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/persistence.dir/persistence.cc.o CMakeFiles/persistence.dir/kvstore.cc.o CMakeFiles/persistence.dir/bloomfilter.cc.o CMakeFiles/persistence.dir/skiplist.cc.o CMakeFiles/persistence.dir/sstable.cc.o CMakeFiles/persistence.dir/vlog.cc.o -o persistence 

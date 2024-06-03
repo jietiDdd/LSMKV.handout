@@ -1,0 +1,1 @@
+/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/correctness.dir/correctness.cc.o CMakeFiles/correctness.dir/kvstore.cc.o CMakeFiles/correctness.dir/bloomfilter.cc.o CMakeFiles/correctness.dir/skiplist.cc.o CMakeFiles/correctness.dir/sstable.cc.o CMakeFiles/correctness.dir/vlog.cc.o -o correctness 

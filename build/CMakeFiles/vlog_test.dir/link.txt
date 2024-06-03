@@ -1,0 +1,1 @@
+/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/vlog_test.dir/my_special_unittests/vlog_test.cc.o CMakeFiles/vlog_test.dir/sstable.cc.o CMakeFiles/vlog_test.dir/bloomfilter.cc.o CMakeFiles/vlog_test.dir/skiplist.cc.o CMakeFiles/vlog_test.dir/vlog.cc.o -o vlog_test  lib/libgtest_main.a lib/libgtest.a 

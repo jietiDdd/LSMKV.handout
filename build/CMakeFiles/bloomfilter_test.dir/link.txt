@@ -1,0 +1,1 @@
+/usr/bin/clang++  -Wall -Ofast -g CMakeFiles/bloomfilter_test.dir/bloomfilter.cc.o CMakeFiles/bloomfilter_test.dir/myunittests/bloomfilter_test.cc.o -o bloomfilter_test  lib/libgtest_main.a lib/libgtest.a 

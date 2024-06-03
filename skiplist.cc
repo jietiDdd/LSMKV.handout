@@ -11,6 +11,7 @@ Skiplist::Skiplist()
     for(int i = 0; i <= MAX_LEVEL; i++){
         head->forward[i] = tail;
     }
+    keyNum = 0;
 }
 
 // 析构函数
@@ -27,7 +28,7 @@ Skiplist::~Skiplist()
 }
 
 // PUT操作
-void Skiplist::put(uint64_t key, const std::string &value)
+bool Skiplist::put(uint64_t key, const std::string &value)
 {
     std::vector<Skiplist_Node*> update;
     Skiplist_Node *p = head;
@@ -42,18 +43,19 @@ void Skiplist::put(uint64_t key, const std::string &value)
         update[i] = p;
     }
 
-    /*
-    TODO: 如果插入或覆盖后，Memtable大小超过限制，对硬盘进行操作后再插入
-    */
-
     // key若存在，需要进行替换而非插入
     p = p->forward[0];
     if(p->key == key){
         p->value = value;
-        return;
+        return true;
     }
 
     // key不存在，进行插入
+    // 先检查插入后是否会溢出
+    if(keyNum == MAX_KEY_NUMBER){
+        return false; // 插入失败，需要插入内存
+    }
+    keyNum += 1;
     int newLevel = randomLevel();
     if(newLevel > level){
         // 跳表高度增加
@@ -68,6 +70,7 @@ void Skiplist::put(uint64_t key, const std::string &value)
         newNode->forward[i] = update[i]->forward[i];
         update[i]->forward[i] = newNode;
     }
+    return true;
 }
 
 // GET操作
@@ -91,6 +94,7 @@ bool Skiplist::get(uint64_t key, std::string &value)
             }
             // 当前节点已被删除
             else{
+                value = "~DELETED~";
                 return false;
             }
         }

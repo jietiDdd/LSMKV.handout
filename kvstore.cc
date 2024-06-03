@@ -3,10 +3,22 @@
 
 KVStore::KVStore(const std::string &dir, const std::string &vlog) : KVStoreAPI(dir, vlog)
 {
+	SSTable.dir_path = dir;
+	vLog.path = vlog;
+	Memtable = new Skiplist();
 }
 
 KVStore::~KVStore()
 {
+	delete Memtable;
+	for(auto &sstableLevel : SSTable.cacheMap){ // 遍历每层
+		for(auto &sstable : sstableLevel.second){ // 遍历每层每个文件
+			utils::rmfile(sstable.first.c_str());
+		}
+		// 删除整层目录
+		std::string levelPath = SSTable.dir_path + "level-" + std::to_string(sstableLevel.first);
+		utils::rmdir(levelPath.c_str());
+	}
 }
 
 /**
@@ -15,6 +27,14 @@ KVStore::~KVStore()
  */
 void KVStore::put(uint64_t key, const std::string &s)
 {
+	if(!Memtable->put(key, s)){ // 超过16KB，压入硬盘
+		std::string file_path = SSTable.putNewFile();
+		Memtable->to_disk(file_path, vLog ,SSTable.cacheMap);
+		SSTable.compaction(); // 进行合并
+		delete Memtable;
+		Memtable = new Skiplist();
+		Memtable->put(key,s); // 重新插入
+	}
 }
 /**
  * Returns the (string) value of the given key.
@@ -22,6 +42,20 @@ void KVStore::put(uint64_t key, const std::string &s)
  */
 std::string KVStore::get(uint64_t key)
 {
+	std::string value = "";
+	if(Memtable->get(key,value)){
+		// 查找成功，返回
+		return value;
+	}
+	if(value == "~DELETED~"){
+		// 已删除，不必查找SStable
+		return "";
+	}
+	value = "";
+	if(SSTable.get(key,value,vLog)){
+		// 在SSTable中查找
+		return value;
+	}
 	return "";
 }
 /**
@@ -30,7 +64,8 @@ std::string KVStore::get(uint64_t key)
  */
 bool KVStore::del(uint64_t key)
 {
-	return false;
+	// 只需要在Memtable中删除
+	return Memtable->del(key);
 }
 
 /**
@@ -39,6 +74,17 @@ bool KVStore::del(uint64_t key)
  */
 void KVStore::reset()
 {
+	delete Memtable;
+	for(auto &sstableLevel : SSTable.cacheMap){ // 遍历每层
+		for(auto &sstable : sstableLevel.second){ // 遍历每层每个文件
+			utils::rmfile(sstable.first.c_str());
+		}
+		// 删除整层目录
+		std::string levelPath = SSTable.dir_path + "level-" + std::to_string(sstableLevel.first);
+		utils::rmdir(levelPath.c_str());
+		sstableLevel.second.clear();
+	}
+	utils::rmfile(vLog.path.c_str());
 }
 
 /**

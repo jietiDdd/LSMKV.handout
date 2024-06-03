@@ -2,7 +2,7 @@
 
 #include "bloomfilter.h"
 #include "global.h"
-#include "vLog.h"
+#include "vlog.h"
 
 // 缓存的单个SSTable
 struct CacheTable{
@@ -18,9 +18,6 @@ struct CacheTable{
 
 // 有关SSTable的相关处理，为了提高速度，提供缓存
 class SSTable{
-private:
-    std::string directory; // 总目录
-    
 public:
     /*
      * 缓存的cacheMap，用于缓存所有SSTable
@@ -36,8 +33,6 @@ public:
     std::map<uint32_t, uint64_t> levelFileNum;
 
     SSTable();
-
-    ~SSTable();
 
     bool get(uint64_t key, std::string &value, vLog &vlog);
 
@@ -65,4 +60,8 @@ public:
 
     void set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std::vector<uint64_t> offsetList, std::vector<uint32_t> vlenList,
     uint32_t level);
+
+    std::string putNewFile();
+
+    void diskToCache();
 };

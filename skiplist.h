@@ -1,7 +1,7 @@
 #pragma once
 
 #include "global.h"
-#include "vLog.h"
+#include "vlog.h"
 #include "bloomfilter.h"
 #include "sstable.h"
 
@@ -57,7 +57,7 @@ public:
 
     ~Skiplist();
 
-    void put(uint64_t key, const std::string &value);
+    bool put(uint64_t key, const std::string &value);
 
     bool get(uint64_t key, std::string &value);
 
