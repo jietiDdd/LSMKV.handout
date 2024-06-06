@@ -16,9 +16,7 @@ public:
 
     // 自定义赋值运算符重载函数
     BloomFilter& operator=(const BloomFilter& other) {
-        if (this != &other) {
-            data = other.data;
-        }
+        data = other.data;
         return *this;
     }
 

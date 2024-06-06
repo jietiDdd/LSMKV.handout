@@ -6,6 +6,7 @@
 #include "vlog.h"
 #include "global.h"
 #include "bloomfilter.h"
+#include <iostream>
 
 class KVStore : public KVStoreAPI
 {

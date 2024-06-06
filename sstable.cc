@@ -4,7 +4,7 @@
 SSTable::SSTable()
 {
     for(int i = 0; i < 4; i++){ // 最开始4级
-        levelFileNum[i] = 2 * (i - 1);
+        levelFileNum[i] = 2 * (i + 1);
     }
 }
 
@@ -21,6 +21,12 @@ bool SSTable::get(uint64_t key, std::string &value, vLog &vlog, uint64_t &offset
                 if(getByOne(cachePair.second, key, value, vlog, offset)){ // 找到了
                     newTimeStamp = cachePair.second.timeStamp;
                     isFound = true;
+                } else {
+                    // 没找到，检查是否将value设置为DELETED
+                    if(value == "~DELETED~"){
+                        newTimeStamp = cachePair.second.timeStamp;
+                        isFound = false;
+                    }
                 }
             }
         }
@@ -55,6 +61,8 @@ bool SSTable::getByOne(CacheTable cacheTable, uint64_t key, std::string &value, 
                 value = vlog.get(cacheTable.offsetList[mid], vlenList[mid]);
                 return true;
             }
+            offset = cacheTable.offsetList[mid];
+            value = "~DELETED~";
             return false;     
         }
         else if(keyList[mid] < key){ // 在右半部分
@@ -418,9 +426,9 @@ void SSTable::diskToCache()
             for(;fileNum > 0; fileNum--){
                 // 一次性读取完文件
                 std::fstream file;
-                file.open(filePath[fileNum - 1], std::fstream::in | std::fstream::binary);
+                file.open(levelPath + "/" + filePath[fileNum - 1], std::fstream::in | std::fstream::binary);
                 file.seekg(0,std::ios::end);
-                std::streampos fileSize = file.tellg();
+                uint64_t fileSize = file.tellg();
                 file.seekg(0, std::ios::beg);
                 char *bytes = new char[fileSize];
                 char *init = bytes;
@@ -435,7 +443,7 @@ void SSTable::diskToCache()
                 cacheTable.KVNumber = byte_to_uint64(&bytes);
                 cacheTable.minKey = byte_to_uint64(&bytes);
                 cacheTable.maxKey = byte_to_uint64(&bytes);
-                cacheTable.bloomFilter.bloom_to_byte(&bytes);
+                cacheTable.bloomFilter.byte_to_bloom(&bytes);
                 for(uint64_t j = 0; j < cacheTable.KVNumber; j++){
                     cacheTable.keyList.push_back(byte_to_uint64(&bytes));
                     cacheTable.offsetList.push_back(byte_to_uint64(&bytes));
@@ -445,7 +453,7 @@ void SSTable::diskToCache()
                 cacheMap[i][filePath[fileNum - 1]] = cacheTable;
                 delete [] init;
             }
-            levelFileNum[i] = 2 * (i - 1); 
+            levelFileNum[i] = 2 * (i + 1); 
         }
         else{
             // 不存在该目录，停止缓存

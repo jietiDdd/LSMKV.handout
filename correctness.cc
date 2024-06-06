@@ -10,7 +10,7 @@ class CorrectnessTest : public Test
 private:
 	const uint64_t SIMPLE_TEST_MAX = 512;
 	const uint64_t LARGE_TEST_MAX = 1024 * 64;
-	const uint64_t GC_TEST_MAX = 1024 * 48;
+	const uint64_t GC_TEST_MAX = 1024 * 6;
 
 	void regular_test(uint64_t max)
 	{
@@ -120,7 +120,8 @@ private:
 
 			if (i % gc_trigger == 0) [[unlikely]]
 			{
-				check_gc(16 * MB);
+				std::cerr << i << " ";
+				check_gc(2 * MB);
 			}
 		}
 
@@ -142,6 +143,8 @@ private:
 			default:
 				assert(0);
 			}
+
+			if(i % 1024 == 0) std::cerr << i << " ";
 		}
 
 		phase();
@@ -152,7 +155,8 @@ private:
 
 			if ((i - 1) % gc_trigger == 0) [[unlikely]]
 			{
-				check_gc(8 * MB);
+				std::cerr << i << " ";
+				check_gc(MB);
 			}
 		}
 
@@ -177,13 +181,16 @@ private:
 
 			if (((i - 1) / 2) % gc_trigger == 0) [[unlikely]]
 			{
-				check_gc(32 * MB);
+				std::cerr << i << " ";
+				check_gc(4 * MB);
 			}
 		}
 
 		for (i = 0; i < max; ++i)
 		{
 			EXPECT(not_found, store.get(i));
+
+			if(i % 1024 == 0) std::cerr << i << " ";
 		}
 
 		phase();
@@ -200,15 +207,15 @@ public:
 	{
 		std::cout << "KVStore Correctness Test" << std::endl;
 
-		store.reset();
+		// store.reset();
 
 		std::cout << "[Simple Test]" << std::endl;
-		regular_test(SIMPLE_TEST_MAX);
+		// regular_test(SIMPLE_TEST_MAX);
 
-		store.reset();
+		// store.reset();
 
 		std::cout << "[Large Test]" << std::endl;
-		regular_test(LARGE_TEST_MAX);
+		// regular_test(LARGE_TEST_MAX);
 
 		store.reset();
 

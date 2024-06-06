@@ -1,13 +1,14 @@
 #include "vlog.h"
+#include <iostream>
 
 // 实现memtable将数据写入vLog，并返回偏移量数组
 std::vector<uint64_t> vLog::addNewEntrys(std::vector<Entry> entries, uint64_t length)
 {
     std::fstream file;
-    file.open(path, std::fstream::out | std::fstream::binary);
+    file.open(path, std::fstream::out | std::fstream::binary | std::fstream::app);
     file.seekp(0, std::ios::end); // head指针在文件结尾
     head = file.tellp(); // 获取head指针
-    char* bytes = new char[length];
+    char* bytes = new char[length * 4];
     char* init = bytes;
     std::vector<uint64_t> offset; // 偏移量
     // 遍历entries，将他们加入到bytes这一个缓存的char数组
@@ -79,11 +80,39 @@ void vLog::setHeadAndTail()
     tail = utils::seek_data_block(path); // 大致估计位置
     file.seekg(tail,std::ios::beg);
     char checkMagic;
-    while(file.get(checkMagic)){
-        if(checkMagic == 0xff){
-            // 找到magic，设置tail
-            tail = file.tellg();
-            return;
+    while(1){
+        tail = file.tellg();
+        file.read(&checkMagic,sizeof(char));
+        // std::cout << tail << " ";
+        if((u_char)(checkMagic) == 0xff){
+            // 找到magic
+            // 进行crc校验
+            Entry entry;
+            entry.magic = 0xff;
+            file.read(reinterpret_cast<char*>(&entry.checkNum),sizeof(uint16_t));
+
+		    file.read(reinterpret_cast<char*>(&entry.key),sizeof(uint64_t));
+		    file.read(reinterpret_cast<char*>(&entry.vlen), sizeof(uint32_t));
+		    char* buffer = new char[entry.vlen];
+		    file.read(buffer, entry.vlen);
+		    entry.value = std::string(buffer, entry.vlen);
+		    delete [] buffer;
+
+            std::vector<unsigned char> data;
+            const unsigned char* keyBytes = reinterpret_cast<const unsigned char*>(&entry.key);
+            data.insert(data.end(), keyBytes, keyBytes + sizeof(entry.key));
+
+            const unsigned char* vlenBytes = reinterpret_cast<const unsigned char*>(&entry.vlen);
+            data.insert(data.end(), vlenBytes, vlenBytes + sizeof(entry.vlen));
+
+            const unsigned char* valueBytes = reinterpret_cast<const unsigned char*>(entry.value.data());
+            data.insert(data.end(), valueBytes, valueBytes + entry.value.size());
+
+            if(entry.checkNum == utils::crc16(data)){
+                break; // 校验通过
+            } else {
+                file.seekg(tail,std::ios::beg);
+            }
         }
     }
 }

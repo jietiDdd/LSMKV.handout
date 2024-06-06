@@ -82,23 +82,26 @@ bool Skiplist::get(uint64_t key, std::string &value)
     // 从最高一级向下查找
     for(int i = level; i >= 0; i--){
         // 在该层停在不大于key的最大位置
-        while(p->forward[i]->isData == true && p->forward[i]->key <= key){
+        while(p->forward[i]->isData == true && p->forward[i]->key < key){
             p = p->forward[i];
         }
-        // 查找成功
-        if(p->key == key){
-            // 当前节点未被标记为"~DELETED~"
-            if(p->value != "~DELETED~"){
-                value = p->value;
-                return true;
-            }
-            // 当前节点已被删除
-            else{
-                value = "~DELETED~";
-                return false;
-            }
-        }
     }
+
+    p = p->forward[0];
+
+    // 查找成功
+    if(p->key == key){
+        // 当前节点未被标记为"~DELETED~"
+        if(p->value != "~DELETED~"){
+            value = p->value;
+            return true;
+        }
+        // 当前节点已被删除
+        else{
+            value = "~DELETED~";
+            return false;
+        }
+    }    
 
     // 查找失败
     return false;
@@ -112,18 +115,22 @@ bool Skiplist::del(uint64_t key)
     // 查找需要删除的位置
     for(int i = level; i >= 0; i--){
         // 下一节点不是tail且小于键，继续向右查找
-        while(p->forward[i]->isData == true && p->forward[i]->key <= key){
+        while(p->forward[i]->isData == true && p->forward[i]->key < key){
             p = p->forward[i];
-        }
-        // 搜索到记录，将其记录为删除标记，返回true
-        if(p->key == key){
-            if(p->value == "~DELETED~"){
-                return false; // 防止二次删除
-            }
-            p->value = "~DELETED~";
-            return true;
-        }  
+        } 
     }
+
+    p = p->forward[0];
+
+    // 搜索到记录，将其记录为删除标记，返回true
+    if(p->key == key){
+        if(p->value == "~DELETED~"){
+            return false; // 防止二次删除
+        }
+        p->value = "~DELETED~";
+        return true;
+    }
+    
     // 未查找到记录，返回false
     return false;  
 }
@@ -168,6 +175,8 @@ void Skiplist::scan(uint64_t k1,uint64_t k2,
 void Skiplist::to_disk(const std::string &file_path, vLog &vlog, 
     std::map<std::uint32_t, std::map<std::string, CacheTable>> &cacheMap)
 {
+    // 先检查是否为空
+    if(keyNum == 0) return;
     // 在进行SSTable硬盘写入的同时写入缓存，提高效率
     CacheTable cacheTable;
     // TODO:减少计算
@@ -182,7 +191,7 @@ void Skiplist::to_disk(const std::string &file_path, vLog &vlog,
         Entry entry;
         cacheTable.keyList.push_back(p->key);
         // 检查是否已被删除，如果是，需要设置vlen为0
-        if(p->value != "~DELETED"){
+        if(p->value != "~DELETED~"){
             cacheTable.vlenList.push_back(p->value.length());
 
             entry.key = p->key;

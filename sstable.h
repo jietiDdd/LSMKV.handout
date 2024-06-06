@@ -18,15 +18,14 @@ struct CacheTable{
     // 自定义赋值运算符重载函数
     CacheTable& operator=(const CacheTable& other) {
         // 逐个成员进行赋值操作
-        timeStamp = other.timeStamp;
-        KVNumber = other.KVNumber;
-        minKey = other.minKey;
-        maxKey = other.maxKey;
-        bloomFilter = other.bloomFilter;
-        keyList = other.keyList;
-        offsetList = other.offsetList;
-        vlenList = other.vlenList;
-
+            timeStamp = other.timeStamp;
+            KVNumber = other.KVNumber;
+            minKey = other.minKey;
+            maxKey = other.maxKey;
+            bloomFilter = other.bloomFilter;
+            keyList = other.keyList;
+            offsetList = other.offsetList;
+            vlenList = other.vlenList;
         return *this;
     }
 };
