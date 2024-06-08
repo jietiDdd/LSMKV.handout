@@ -12,6 +12,7 @@
 #include <map>
 #include <fstream>
 #include <algorithm>
+#include <queue>
 #include "utils.h"
 
 // 有关跳表

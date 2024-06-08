@@ -34,10 +34,9 @@ protected:
 		}
 		if (verbose)
 		{
-			std::cerr << "E" << " ";
-			// std::cerr << "TEST Error @" << file << ":" << line;
-			// std::cerr << ", expected " << exp;
-			// std::cerr << ", got " << got << std::endl;
+			std::cerr << "TEST Error @" << file << ":" << line;
+			std::cerr << ", expected " << exp;
+			std::cerr << ", got " << got << std::endl;
 		}
 	}
 
@@ -55,8 +54,8 @@ protected:
 		if (verbose)
 		{
 			std::cerr << "TEST Error @" << file << ":" << line;
-			// std::cerr << ", current offset " << cur;
-			// std::cerr << ", last offset " << last << std::endl;
+			std::cerr << ", current offset " << cur;
+			std::cerr << ", last offset " << last << std::endl;
 		}
 	}
 

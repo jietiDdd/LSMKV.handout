@@ -3,9 +3,7 @@
 // 初始化level
 SSTable::SSTable()
 {
-    for(int i = 0; i < 4; i++){ // 最开始4级
-        levelFileNum[i] = 2 * (i + 1);
-    }
+    levelFileNum[0] = 2;
 }
 
 
@@ -24,6 +22,7 @@ bool SSTable::get(uint64_t key, std::string &value, vLog &vlog, uint64_t &offset
                 } else {
                     // 没找到，检查是否将value设置为DELETED
                     if(value == "~DELETED~"){
+                        value = "";
                         newTimeStamp = cachePair.second.timeStamp;
                         isFound = false;
                     }
@@ -158,18 +157,24 @@ void SSTable::scanByOne(CacheTable cacheTable, uint64_t k1, uint64_t k2,
     // 扫描索引区间，注意更新时间戳
     for(uint64_t i = less; i <= max; i++){
         key = keyList[i];
-        if(timeStamp.find(key) != timeStamp.end() && timeStamp.at(key) > thisTimeStamp){ // 原来的记录更加新，不必插入
-            continue;
-        }
-        if(vlenList[i] != 0){ // 说明未删除，需要插入
-            map[key] = vlog.get(offsetList[i], vlenList[i]);
-            timeStamp[key] = thisTimeStamp;
-            continue;
-        }
-        // 已删除，也在map中删去
         if(timeStamp.find(key) != timeStamp.end()){
-            map.erase(key);
-            timeStamp.erase(key);
+            // 已有记录
+            if(timeStamp[key] < thisTimeStamp){
+                // 可以替换时间戳
+                timeStamp[key] = thisTimeStamp;
+                if(vlenList[i] != 0){
+                    map[key] = vlog.get(offsetList[i],vlenList[i]);
+                } else {
+                    // 已被删除
+                    map.erase(key);
+                }
+            }
+        } else {
+            // 没有记录，放心放入
+            timeStamp[key] = thisTimeStamp;
+            if(vlenList[i] != 0){
+                map[key] = vlog.get(offsetList[i],vlenList[i]);
+            }
         }
     }
 }
@@ -198,11 +203,12 @@ void SSTable::compaction()
         // 2. 找到下一层中键区间有交集的文件
         uint32_t nextLevel = level + 1;
         if(levelFileNum.find(nextLevel) == levelFileNum.end()){ // 先看看下一层是否存在，不存在就创建
-            levelFileNum[nextLevel] = 2 * (nextLevel + 1);
+            levelFileNum[nextLevel] = 2 * levelFileNum[level];
+        } 
+        if(!utils::dirExists(dir_path + "/level-" + std::to_string(nextLevel))){
             utils::mkdir(dir_path + "/level-" + std::to_string(nextLevel));
-        } else { // 已有下一层，才进行寻找
-            select_next_level(cacheMap[nextLevel], selected, nextLevel,minKey, maxKey, timeStamp);
         }
+        select_next_level(cacheMap[nextLevel], selected, nextLevel,minKey, maxKey, timeStamp);
 
         // 2.5 删除原来的文件，并更新selected(毕竟路径无效了)
         std::vector<CacheTable> selectedSST;
@@ -212,9 +218,12 @@ void SSTable::compaction()
         }
 
         // 3. 使用归并排序
+        uint64_t assignment = selectedSST.size() * MAX_KEY_NUMBER;
         std::vector<uint64_t> keyList; // 存放结果
         std::vector<uint64_t> offsetList;
         std::vector<uint32_t> vlenList;
+
+
         merge(keyList, offsetList, vlenList, selectedSST);
 
         // 4. 将结果切分后放入新的文件
@@ -237,7 +246,7 @@ void SSTable::select_overflow(std::map<std::string, CacheTable> cacheList, std::
             && (item1.second.minKey < item2.second.minKey));
     });
     // 计算选中的数量
-    int selectedNum = (level == 0) ? levelFileNum[0] : (cacheList.size() - levelFileNum[level]);
+    int selectedNum = (level == 0) ? cacheList.size() : (cacheList.size() - levelFileNum[level]);
     minKey = UINT64_MAX;
     maxKey = 0;
     timeStamp = 0;
@@ -245,6 +254,7 @@ void SSTable::select_overflow(std::map<std::string, CacheTable> cacheList, std::
     // 计算selected的minKey和maxKey
     for(int i = 0; i < selectedNum; i++){
         selected.emplace_back(temp[i]);
+        cacheMap[level].erase(temp[i].first);
         if(temp[i].second.minKey < minKey) minKey = temp[i].second.minKey;
         if(temp[i].second.maxKey > maxKey) maxKey = temp[i].second.maxKey;
         if(temp[i].second.timeStamp > timeStamp) timeStamp = temp[i].second.timeStamp;
@@ -270,6 +280,7 @@ void SSTable::select_next_level(std::map<std::string, CacheTable> cacheList, std
         }
         // 有交集，压入vector
         selected.emplace_back(cachePair);
+        cacheMap[level].erase(cachePair.first); // 在缓存中删了
         if(cachePair.second.timeStamp > timeStamp) timeStamp = cachePair.second.timeStamp;
     }
 }
@@ -282,66 +293,69 @@ void SSTable::select_next_level(std::map<std::string, CacheTable> cacheList, std
 void SSTable::merge(std::vector<uint64_t> &keyList, std::vector<uint64_t> &offsetList, std::vector<uint32_t> &vlenList,
     std::vector<CacheTable> &selected)
 {
-    std::vector<uint64_t> key1;
-    std::vector<uint64_t> offset1;
-    std::vector<uint32_t> vlen1;
-    std::vector<uint64_t> key2;
-    std::vector<uint64_t> offset2;
-    std::vector<uint32_t> vlen2;
-    std::vector<uint64_t> timeStamp2;
-    std::vector<uint64_t> timeStampList;
-    for(size_t i = 0; i < selected.size(); i++){
-        key1 = selected[i].keyList;
-        offset1 = selected[i].offsetList;
-        vlen1 = selected[i].vlenList;
-        key2 = keyList;
-        offset2 = offsetList;
-        vlen2 = vlenList;
-        timeStamp2 = timeStampList;
-        uint64_t it1 = 0;
-        uint64_t it2 = 0;
-        uint64_t all = 0;
-        while(it1 < key1.size() && it2 < key2.size()){
-            if(key1[it1] < key2[it2]){ // 先放左边
-                keyList[all++] = key1[it1++];
-                offsetList[all++] = offset1[it1++];
-                vlenList[all++] = vlen1[it1++];
-                timeStampList[all++] = selected[i].timeStamp;
-            }
-            else if(key1[it1] > key2[it2]){ // 放右边
-                keyList[all++] = key2[it2++];
-                offsetList[all++] = offset2[it2++];
-                vlenList[all++] = vlen2[it2++];
-                timeStampList[all++] = timeStamp2[it2++];
-            }
-            else if(selected[i].timeStamp < timeStamp2[it2]){ // 放右边，且舍弃左边，即用新记录覆盖
-                keyList[all++] = key2[it2++];
-                offsetList[all++] = offset2[it2++];
-                vlenList[all++] = vlen2[it2++];
-                timeStampList[all++] = timeStamp2[it2++];
-                it1++; // 覆盖旧记录
-            }
-            else{
-                keyList[all++] = key1[it1++];
-                offsetList[all++] = offset1[it1++];
-                vlenList[all++] = vlen1[it1++];
-                timeStampList[all++] = selected[i].timeStamp;
-                it2++;
+    uint64_t selectedSize = selected.size();
+    // 保存每个cacheTable已经保存了多少key
+    std::vector<uint64_t> finishKeys(selectedSize, 0);
+    // 保存上一次的键和时间戳，便于覆写
+    uint64_t oldMinKey = UINT64_MAX;
+    uint64_t oldTimeStamp = 0;
+    while(1){
+        uint64_t minKey = UINT64_MAX;
+        uint64_t offset;
+        uint32_t vlen;
+        uint64_t timeStamp;
+        uint64_t minIt; // 持有最小值的索引
+        // 遍历selected，找到最小值
+        for(uint64_t i = 0; i < selectedSize; i++){
+            if(finishKeys[i] < selected[i].KVNumber && selected[i].keyList[finishKeys[i]] < minKey){
+                minKey = selected[i].keyList[finishKeys[i]];
+                offset = selected[i].offsetList[finishKeys[i]];
+                vlen = selected[i].vlenList[finishKeys[i]];
+                minIt = i;
+                timeStamp = selected[i].timeStamp;
             }
         }
-        while(it1 < key1.size()){
-            keyList[all++] = key1[it1++];
-            offsetList[all++] = offset1[it1++];
-            vlenList[all++] = vlen1[it1++];
-            timeStampList[all++] = selected[i].timeStamp;
+        // 发现都没找到，说明遍历完成
+        if(minKey == UINT64_MAX){
+            break;
         }
-        while(it2 < key2.size()){
-            keyList[all++] = key2[it2++];
-            offsetList[all++] = offset2[it2++];
-            vlenList[all++] = vlen2[it2++];
-            timeStampList[all++] = timeStamp2[it2++];
+
+        // 保存key++
+        finishKeys[minIt] += 1;
+
+        // 检查keylist尾部的元素，其小于等于minKey
+        // 小于则直接push_back
+        // 等于需要比较时间戳，大的才能保留
+        if(keyList.size() > 0){
+            if(oldMinKey == minKey){
+                if(oldTimeStamp < timeStamp){
+                    // 需要覆写
+                    keyList.back() = minKey;
+                    offsetList.back() = offset;
+                    vlenList.back() = vlen;
+                    // 更新时间戳
+                    oldMinKey = minKey;
+                    oldTimeStamp = timeStamp;
+                }
+                // 否则舍弃
+            } else {
+                // 也只会是小于，进行插入
+                keyList.push_back(minKey);
+                offsetList.push_back(offset);
+                vlenList.push_back(vlen);
+                oldMinKey = minKey;
+                oldTimeStamp = timeStamp;
+            }
+        } else{
+            // 第一次
+            keyList.push_back(minKey);
+            offsetList.push_back(offset);
+            vlenList.push_back(vlen);
+            oldMinKey = minKey;
+            oldTimeStamp = timeStamp;
         }
     }
+
 }
 
 void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std::vector<uint64_t> offsetList, std::vector<uint32_t> vlenList,
@@ -357,7 +371,6 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
             currentKVNumber = MAX_KEY_NUMBER;
         }
         // 乱写的，后续应当校验
-        std::string path = dir_path + "/level-" + std::to_string(level) + "/" + std::to_string(cacheMap[level].size()) + ".sst";
         // 初始化缓存
         CacheTable cacheTable;
         cacheTable.timeStamp = timeStamp;
@@ -387,6 +400,8 @@ void SSTable::set_sstable(uint64_t timeStamp, std::vector<uint64_t> keyList, std
             uint64_to_byte(cacheTable.offsetList[i], &bytes);
             uint32_to_byte(cacheTable.vlenList[i], &bytes);
         }
+        std::string path = dir_path + "/level-" + std::to_string(level) + "/" + std::to_string(cacheMap[level].size()) 
+        + "-" + std::to_string(timeStamp) + "-" + std::to_string(currentTimeStamp) + ".sst";
         cacheMap[level][path] = cacheTable;
 
         // 写入硬盘
@@ -406,7 +421,7 @@ std::string SSTable::putNewFile()
     if(cacheMap[0].empty()){ // level-0为空，需要创建
         utils::mkdir(levelPath);
     }
-    std::string filePath = levelPath + "/" + std::to_string(cacheMap[0].size()) + ".sst";
+    std::string filePath = levelPath + "/" + std::to_string(cacheMap[0].size()) + "-" + std::to_string(currentTimeStamp) + "-" + std::to_string(currentTimeStamp) +".sst";
     return filePath;
 }
 
@@ -453,7 +468,7 @@ void SSTable::diskToCache()
                 cacheMap[i][filePath[fileNum - 1]] = cacheTable;
                 delete [] init;
             }
-            levelFileNum[i] = 2 * (i + 1); 
+            if(i > 0) levelFileNum[i] = 2 * levelFileNum[i - 1]; 
         }
         else{
             // 不存在该目录，停止缓存

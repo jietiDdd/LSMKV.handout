@@ -11,7 +11,7 @@
 class PersistenceTest : public Test
 {
 private:
-	const uint64_t TEST_MAX = 1024 * 4;
+	const uint64_t TEST_MAX = 1024 * 32;
 	const uint64_t GC_TRIGGER = 1024;
 
 public:
@@ -44,7 +44,7 @@ public:
 
 			if ((i / 2) % GC_TRIGGER == 0) [[unlikely]]
 			{
-				check_gc(2 * MB);
+				check_gc(16 * MB);
 			}
 		}
 
@@ -73,11 +73,11 @@ public:
 
 			if (i % GC_TRIGGER == 0) [[unlikely]]
 			{
-				check_gc(MB);
+				check_gc(8 * MB);
 			}
 		}
 
-		check_gc(4 * MB);
+		check_gc(32 * MB);
 
 		phase();
 
@@ -122,7 +122,7 @@ public:
 		{
 			if (i % GC_TRIGGER == 0) [[unlikely]]
 			{
-				check_gc(2 * MB);
+				check_gc(16 * MB);
 			}
 			switch (i & 3)
 			{

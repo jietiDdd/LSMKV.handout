@@ -29,7 +29,7 @@ void KVStore::put(uint64_t key, const std::string &s)
 	if(!Memtable->put(key, s)){ // 超过16KB，压入硬盘
 		std::string file_path = sstable.putNewFile();
 		Memtable->to_disk(file_path, VLog, sstable.cacheMap);
-		// sstable.compaction(); // 进行合并
+		sstable.compaction(); // 进行合并
 		delete Memtable;
 		Memtable = new Skiplist();
 		Memtable->put(key,s); // 重新插入
@@ -179,5 +179,4 @@ void KVStore::gc(uint64_t chunk_size)
 	// 打空洞
 	utils::de_alloc_file(VLog.path, VLog.tail, (current - VLog.tail));
 	VLog.tail = current;
-	std::cout << current << " ";
 }
